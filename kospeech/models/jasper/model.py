@@ -13,10 +13,10 @@
 # limitations under the License.
 
 import torch
-import torch.nn as nn
-
 from torch import Tensor
 from typing import Tuple
+
+from kospeech.models.model import CTCModel
 from kospeech.models.jasper.decoder import JasperDecoder
 from kospeech.models.jasper.encoder import JasperEncoder
 from kospeech.models.jasper import (
@@ -26,7 +26,7 @@ from kospeech.models.jasper import (
 )
 
 
-class Jasper(nn.Module):
+class Jasper(CTCModel):
     """
     Jasper: An End-to-End Convolutional Neural Acoustic Model
     Jasper (Just Another Speech Recognizer), an ASR model comprised of 54 layers proposed by NVIDIA.
@@ -74,8 +74,3 @@ class Jasper(nn.Module):
         encoder_outputs, output_lengths = self.encoder(inputs.transpose(1, 2), input_lengths)
         outputs, output_lengths = self.decoder(encoder_outputs, output_lengths)
         return outputs, output_lengths
-
-    def greedy_search(self, inputs: Tensor, input_lengths: Tensor, device: str):
-        with torch.no_grad():
-            outputs, output_lengths = self.forward(inputs, input_lengths)
-            return outputs.max(-1)[1]

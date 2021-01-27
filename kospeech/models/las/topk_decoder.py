@@ -16,6 +16,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from kospeech.models.decoder import IncrementalDecoder
+
 
 def _inflate(tensor: Tensor, n_repeat: int, dim: int) -> Tensor:
     """ Given a tensor, 'inflates' it along the given dimension by replicating each slice specified number of times  """
@@ -25,7 +27,7 @@ def _inflate(tensor: Tensor, n_repeat: int, dim: int) -> Tensor:
     return tensor.repeat(*repeat_dims)
 
 
-class TopKDecoder(nn.Module):
+class TopKDecoder(IncrementalDecoder):
     """
     Applies beam search decoing (Top k decoding)
 

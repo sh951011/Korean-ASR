@@ -13,16 +13,16 @@
 # limitations under the License.
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 from typing import Tuple
 
 from kospeech.models.conformer.encoder import ConformerEncoder
+from kospeech.models.model import CTCModel
 from kospeech.models.modules import Linear
 
 
-class Conformer(nn.Module):
+class Conformer(CTCModel):
     """
     Conformer: Convolution-augmented Transformer for Speech Recognition
     The paper used a one-lstm Transducer decoder, currently still only implemented
@@ -91,8 +91,3 @@ class Conformer(nn.Module):
         outputs = self.fc(outputs)
         outputs = F.log_softmax(outputs, dim=-1)
         return outputs, output_lengths
-
-    def greedy_search(self, inputs: Tensor, input_lengths: Tensor, device: str):
-        with torch.no_grad():
-            output, output_lengths = self.forward(inputs, input_lengths)
-            return output.max(-1)[1]

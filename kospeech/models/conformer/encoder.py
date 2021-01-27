@@ -17,7 +17,7 @@ import torch.nn as nn
 from torch import Tensor
 from typing import Tuple
 
-from kospeech.models.conv import Conv2dSubampling
+from kospeech.models.encoder import ConvolutionalEncoder
 from kospeech.models.modules import (
     LayerNorm,
     ResidualConnectionModule,
@@ -115,7 +115,7 @@ class ConformerBlock(nn.Module):
         return self.sequential(inputs.to(self.device))
 
 
-class ConformerEncoder(nn.Module):
+class ConformerEncoder(ConvolutionalEncoder):
     """
     Conformer encoder first processes the input with a convolution subsampling layer and then
     with a number of conformer blocks.
@@ -158,27 +158,32 @@ class ConformerEncoder(nn.Module):
             half_step_residual: bool = True,
             device: torch.device = 'cuda',
     ):
-        super(ConformerEncoder, self).__init__()
-        self.conv_subsample = Conv2dSubampling(in_channels=1, out_channels=encoder_dim)
+        super(ConformerEncoder, self).__init__(
+            input_dim=input_dim, in_channels=1, out_channels=encoder_dim,
+            extractor='conv2d', activation='relu', mask_conv=False,
+        )
+        conv_output_dim = self.get_conv_output_dim()
         self.input_projection = nn.Sequential(
-            Linear(encoder_dim * (((input_dim - 1) // 2 - 1) // 2), encoder_dim),
+            Linear(encoder_dim * conv_output_dim, encoder_dim),
             nn.Dropout(p=input_dropout_p),
         )
-        self.layers = nn.ModuleList([ConformerBlock(
-            encoder_dim=encoder_dim,
-            num_attention_heads=num_attention_heads,
-            feed_forward_expansion_factor=feed_forward_expansion_factor,
-            conv_expansion_factor=conv_expansion_factor,
-            feed_forward_dropout_p=feed_forward_dropout_p,
-            attention_dropout_p=attention_dropout_p,
-            conv_dropout_p=conv_dropout_p,
-            conv_kernel_size=conv_kernel_size,
-            half_step_residual=half_step_residual,
-            device=device,
-        ).to(device) for _ in range(num_layers)])
+        self.layers = nn.ModuleList([
+            ConformerBlock(
+                encoder_dim=encoder_dim,
+                num_attention_heads=num_attention_heads,
+                feed_forward_expansion_factor=feed_forward_expansion_factor,
+                conv_expansion_factor=conv_expansion_factor,
+                feed_forward_dropout_p=feed_forward_dropout_p,
+                attention_dropout_p=attention_dropout_p,
+                conv_dropout_p=conv_dropout_p,
+                conv_kernel_size=conv_kernel_size,
+                half_step_residual=half_step_residual,
+                device=device,
+            ).to(device) for _ in range(num_layers)
+        ])
 
     def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
-        outputs, output_lengths = self.conv_subsample(inputs, input_lengths)
+        outputs, output_lengths = self.conv_forward(inputs, input_lengths)
         outputs = self.input_projection(outputs)
 
         for layer in self.layers:

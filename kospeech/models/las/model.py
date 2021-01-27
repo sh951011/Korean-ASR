@@ -15,11 +15,13 @@
 import torch
 import torch.nn as nn
 from torch import Tensor
-from kospeech.models import TopKDecoder
 from typing import Optional, Tuple
 
+from kospeech.models import TopKDecoder
+from kospeech.models.model import EncoderDecoderModel
 
-class ListenAttendSpell(nn.Module):
+
+class ListenAttendSpell(EncoderDecoderModel):
     """
     Listen, Attend and Spell model with configurable encoder and decoder.
 
@@ -75,6 +77,3 @@ class ListenAttendSpell(nn.Module):
     def flatten_parameters(self) -> None:
         self.encoder.rnn.flatten_parameters()
         self.decoder.rnn.flatten_parameters()
-
-    def set_decoder(self, decoder: nn.Module) -> None:
-        self.decoder = decoder

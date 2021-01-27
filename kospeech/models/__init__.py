@@ -12,7 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch.nn as nn
 from dataclasses import dataclass
+
+
+supported_activations = {
+    'hardtanh': nn.Hardtanh(0, 20, inplace=True),
+    'relu': nn.ReLU(inplace=True),
+    'elu': nn.ELU(inplace=True),
+    'leaky_relu': nn.LeakyReLU(inplace=True),
+    'gelu': nn.GELU(),
+}
+
+supported_rnns = {
+    'lstm': nn.LSTM,
+    'gru': nn.GRU,
+    'rnn': nn.RNN
+}
 
 
 @dataclass

@@ -20,7 +20,10 @@ import numpy as np
 
 from torch import Tensor, LongTensor
 from typing import Optional, Any, Tuple
-from kospeech.models.modules import Linear, BaseRNN
+
+from kospeech.models import supported_rnns
+from kospeech.models.decoder import IncrementalDecoder
+from kospeech.models.modules import Linear
 from kospeech.models.attention import (
     LocationAwareAttention,
     MultiHeadAttention,
@@ -29,7 +32,7 @@ from kospeech.models.attention import (
 )
 
 
-class Speller(BaseRNN):
+class Speller(IncrementalDecoder):
     """
     Converts higher level features (from encoder) into output utterances
     by specifying a probability distribution over sequences of characters.
@@ -74,19 +77,21 @@ class Speller(BaseRNN):
             num_layers: int = 2,                     # number of RNN layers
             rnn_type: str = 'lstm',                  # type of RNN cell
             dropout_p: float = 0.3,                  # dropout probability
-            device: str = 'cuda',                    # device - 'cuda' or 'cpu'
+            device: torch.device = 'cuda',           # device - 'cuda' or 'cpu'
     ) -> None:
-        super(Speller, self).__init__(hidden_dim, hidden_dim, num_layers, rnn_type, dropout_p, False, device)
-        self.num_classes = num_classes
+        super(Speller, self).__init__(
+            num_classes=num_classes, max_length=max_length, device=device,
+            pad_id=pad_id, sos_id=sos_id, eos_id=eos_id,
+        )
         self.num_heads = num_heads
         self.num_layers = num_layers
-        self.max_length = max_length
-        self.eos_id = eos_id
-        self.sos_id = sos_id
-        self.pad_id = pad_id
         self.attn_mechanism = attn_mechanism.lower()
         self.embedding = nn.Embedding(num_classes, hidden_dim)
         self.input_dropout = nn.Dropout(dropout_p)
+
+        rnn_cell = supported_rnns[rnn_type]
+        self.rnn = rnn_cell(hidden_dim, hidden_dim, num_layers, True, True, dropout_p, bidirectional=False)
+        self.hidden_dim = hidden_dim
 
         if self.attn_mechanism == 'loc':
             self.attention = LocationAwareAttention(decoder_dim=hidden_dim, attn_dim=hidden_dim, smoothing=False)

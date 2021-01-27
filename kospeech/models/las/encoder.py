@@ -12,37 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import math
-import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 from typing import Tuple, Optional
-from kospeech.models.modules import (
-    BaseRNN,
-    Linear,
-    Transpose
-)
-from kospeech.models.conv import (
-    VGGExtractor,
-    DeepSpeech2Extractor
-)
+
+from kospeech.models import supported_rnns
+from kospeech.models.encoder import ConvolutionalEncoder
+from kospeech.models.modules import Linear, Transpose
 
 
-class Listener(BaseRNN):
+class Listener(ConvolutionalEncoder):
     """
     Converts low level speech signals into higher level features
 
     Args:
-        input_size (int): size of input
+        input_dim (int): dimension of input
         hidden_dim (int): the number of features in the hidden state `h`
         num_layers (int, optional): number of recurrent layers (default: 1)
         bidirectional (bool, optional): if True, becomes a bidirectional encoder (defulat: False)
         rnn_type (str, optional): type of RNN cell (default: lstm)
         dropout_p (float, optional): dropout probability (default: 0.3)
         extractor (str): type of CNN extractor (default: vgg)
-        device (torch.device): device - 'cuda' or 'cpu'
         activation (str): type of activation function (default: hardtanh)
         mask_conv (bool): flag indication whether apply mask convolution or not
+        joint_ctc_attention (bool): flag indication whether to apply joint ctc attention
 
     Inputs: inputs, input_lengths
         - **inputs**: list of sequences, whose length is the batch size and within which each sequence is list of tokens
@@ -52,12 +46,12 @@ class Listener(BaseRNN):
         - **encoder_outputs**: tensor containing the encoded features of the input sequence
         - **encoder_log__probs**: tensor containing log probability for ctc loss
     """
+
     def __init__(
             self,
-            input_size: int,                         # size of input
-            num_classes: int,                        # number of class
+            input_dim: int,                          # size of input
+            num_classes: int = None,                 # number of class
             hidden_dim: int = 512,                   # dimension of RNN`s hidden state
-            device: torch.device = 'cuda',           # device - 'cuda' or 'cpu'
             dropout_p: float = 0.3,                  # dropout probability
             num_layers: int = 3,                     # number of RNN layers
             bidirectional: bool = True,              # if True, becomes a bidirectional encoder
@@ -65,38 +59,22 @@ class Listener(BaseRNN):
             extractor: str = 'vgg',                  # type of CNN extractor
             activation: str = 'hardtanh',            # type of activation function
             mask_conv: bool = False,                 # flag indication whether apply mask convolution or not
-            joint_ctc_attention: bool = False,       # Use CTC Loss & Cross Entropy Joint Learning
+            joint_ctc_attention: bool = False,       # flag indication whether to apply joint ctc attention
     ) -> None:
-        self.mask_conv = mask_conv
         self.extractor = extractor.lower()
+        self.mask_conv = mask_conv
+        super(Listener, self).__init__(input_dim, extractor=self.extractor, activation=activation, mask_conv=mask_conv)
+        rnn_cell = supported_rnns[rnn_type]
+        self.rnn = rnn_cell(self.get_conv_output_dim(), hidden_dim, num_layers, True, True, dropout_p, bidirectional)
+        self.hidden_dim = hidden_dim
         self.joint_ctc_attention = joint_ctc_attention
 
-        if self.extractor == 'vgg':
-            input_size = (input_size - 1) << 5 if input_size % 2 else input_size << 5
-            super(Listener, self).__init__(
-                input_size, hidden_dim, num_layers, rnn_type, dropout_p, bidirectional, device
-            )
-            self.conv = VGGExtractor(activation, mask_conv)
-
-        elif self.extractor == 'ds2':
-            input_size = int(math.floor(input_size + 2 * 20 - 41) / 2 + 1)
-            input_size = int(math.floor(input_size + 2 * 10 - 21) / 2 + 1)
-            input_size <<= 5
-            super(Listener, self).__init__(
-                input_size, hidden_dim, num_layers, rnn_type, dropout_p, bidirectional, device
-            )
-            self.conv = DeepSpeech2Extractor(activation, mask_conv)
-
-        else:
-            raise ValueError("Unsupported Extractor : {0}".format(extractor))
-
         if self.joint_ctc_attention:
-            assert self.mask_conv, "if joint_ctc_attention training, mask_conv should be True"
             self.fc = nn.Sequential(
                 nn.BatchNorm1d(self.hidden_dim << 1),
                 Transpose(shape=(1, 2)),
                 nn.Dropout(dropout_p),
-                Linear(self.hidden_dim << 1, num_classes, bias=False)
+                Linear(hidden_dim << 1, num_classes, bias=False),
             )
 
     def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
@@ -105,33 +83,17 @@ class Listener(BaseRNN):
         input_lengths (torch.LongTensor): (batch_size)
         """
         encoder_log_probs = None
-        encoder_output_lengths = None
 
-        inputs = inputs.unsqueeze(1).transpose(2, 3)
+        conv_outputs, encoder_output_lengths = self.conv_forward(inputs, input_lengths)
+        conv_outputs = conv_outputs.permute(1, 0, 2).contiguous()
 
-        if self.mask_conv:
-            conv_feat, encoder_output_lengths = self.conv(inputs, input_lengths)
-            batch_size, num_channels, hidden_dim, seq_length = conv_feat.size()
-            conv_feat = conv_feat.view(batch_size, num_channels * hidden_dim, seq_length).permute(2, 0, 1).contiguous()
-
-            conv_feat = nn.utils.rnn.pack_padded_sequence(conv_feat, encoder_output_lengths.cpu())
-            encoder_outputs, hidden = self.rnn(conv_feat)
-            encoder_outputs, _ = nn.utils.rnn.pad_packed_sequence(encoder_outputs)
-            encoder_outputs = encoder_outputs.transpose(0, 1)
-
-        else:
-            conv_feat = self.conv(inputs, input_lengths)
-            conv_feat = conv_feat.permute(0, 3, 1, 2)
-
-            batch_size, seq_length, num_channels, hidden_dim = conv_feat.size()
-            conv_feat = conv_feat.contiguous().view(batch_size, seq_length, num_channels * hidden_dim)
-
-            if self.training:
-                self.rnn.flatten_parameters()
-
-            encoder_outputs, hidden = self.rnn(conv_feat)
+        conv_outputs = nn.utils.rnn.pack_padded_sequence(conv_outputs, encoder_output_lengths.cpu())
+        encoder_outputs, hidden = self.rnn(conv_outputs)
+        encoder_outputs, _ = nn.utils.rnn.pad_packed_sequence(encoder_outputs)
+        encoder_outputs = encoder_outputs.transpose(0, 1)
 
         if self.joint_ctc_attention:
-            encoder_log_probs = self.fc(encoder_outputs.transpose(1, 2)).log_softmax(dim=2)
+            encoder_outputs = self.fc(encoder_outputs.transpose(1, 2))
+            encoder_log_probs = F.log_softmax(encoder_outputs, dim=-1)
 
         return encoder_outputs, encoder_log_probs, encoder_output_lengths

@@ -48,17 +48,20 @@ class JasperEncoder(nn.Module):
         self.config = config
         self.device = device
         self.layers = nn.ModuleList()
-        self.layers.append(JasperSubBlock(
-            in_channels=self.config.preprocess_block['in_channels'],
-            out_channels=self.config.preprocess_block['out_channels'],
-            kernel_size=self.config.preprocess_block['kernel_size'],
-            stride=self.config.preprocess_block['stride'],
-            dilation=self.config.preprocess_block['dilation'],
-            dropout_p=self.config.preprocess_block['dropout_p'],
-            activation='relu',
-            bias=False,
-        ).to(self.device))
-        self.layers.extend([JasperBlock(
+        self.layers.append(
+            JasperSubBlock(
+                in_channels=self.config.preprocess_block['in_channels'],
+                out_channels=self.config.preprocess_block['out_channels'],
+                kernel_size=self.config.preprocess_block['kernel_size'],
+                stride=self.config.preprocess_block['stride'],
+                dilation=self.config.preprocess_block['dilation'],
+                dropout_p=self.config.preprocess_block['dropout_p'],
+                activation='relu',
+                bias=False,
+            ).to(self.device)
+        )
+        self.layers.extend([
+            JasperBlock(
                 num_sub_blocks=self.config.num_sub_blocks,
                 in_channels=self.config.block['in_channels'][i],
                 out_channels=self.config.block['out_channels'][i],
@@ -67,7 +70,8 @@ class JasperEncoder(nn.Module):
                 dropout_p=self.config.block['dropout_p'][i],
                 activation='relu',
                 bias=False,
-        ).to(self.device) for i in range(config.num_blocks)])
+            ).to(self.device) for i in range(config.num_blocks)
+        ])
         self.residual_connections = self._create_jasper_dense_residual_connections(self.config.num_blocks)
 
     def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:

@@ -15,18 +15,19 @@
 import torch
 from kospeech.models.las.encoder import Listener
 
-inputs = torch.rand(3, 80, 100)  # BxDxT
-input_lengths = [100, 90, 80]
-encoder = Listener(80, 512, device='cpu')
+inputs = torch.rand(3, 12345, 80)
+input_lengths = torch.IntTensor([12345, 12300, 12000])
+encoder = Listener(input_dim=80, hidden_dim=32, joint_ctc_attention=False)
 encoder_outputs, encoder_log_probs, encoder_output_lengths = encoder(inputs, input_lengths)
 
-print(encoder_outputs)
-# tensor([[[ 0.0336, -0.0324, -0.0320,  ...,  0.0731,  0.0341,  0.0223],
-#          [ 0.0554, -0.0084, -0.0508,  ...,  0.0577,  0.0135,  0.0039],
-#          [ 0.0292, -0.0042, -0.0784,  ...,  0.0600, -0.0215,  0.0316],
-#          ...,
-#          [ 0.0079, -0.0055, -0.0577,  ...,  0.0682, -0.0573,  0.0480],
-#          [-0.0024,  0.0425, -0.0625,  ...,  0.0310, -0.0621,  0.0392],
-#          [ 0.0007,  0.0371, -0.0968,  ...,  0.0186, -0.0425,  0.0232]]]
+print("mask_conv=False PASS")
 
-print(encoder_outputs.size())  # torch.Size([1, 25, 1024])
+encoder = Listener(input_dim=80, hidden_dim=32, joint_ctc_attention=False, mask_conv=True)
+encoder_outputs, encoder_log_probs, encoder_output_lengths = encoder(inputs, input_lengths)
+
+print("mask_conv=True PASS")
+
+encoder = Listener(input_dim=80, hidden_dim=32, num_classes=2, joint_ctc_attention=True)
+encoder_outputs, encoder_log_probs, encoder_output_lengths = encoder(inputs, input_lengths)
+
+print("joint_ctc_attention=True PASS")

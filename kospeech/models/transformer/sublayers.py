@@ -38,7 +38,7 @@ class AddNorm(nn.Module):
         return self.layer_norm(outputs + residual)
 
 
-class PositionWiseFeedForwardNet(nn.Module):
+class PositionwiseFeedForwardNet(nn.Module):
     """
     Position-wise Feedforward Networks proposed in "Attention Is All You Need".
     Fully connected feed-forward network, which is applied to each position separately and identically.
@@ -47,7 +47,7 @@ class PositionWiseFeedForwardNet(nn.Module):
     """
     def __init__(self, d_model: int = 512, d_ff: int = 2048,
                  dropout_p: float = 0.3, ffnet_style: str = 'ff') -> None:
-        super(PositionWiseFeedForwardNet, self).__init__()
+        super(PositionwiseFeedForwardNet, self).__init__()
         self.ffnet_style = ffnet_style.lower()
         if self.ffnet_style == 'ff':
             self.feed_forward = nn.Sequential(

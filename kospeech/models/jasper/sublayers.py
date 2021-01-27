@@ -16,6 +16,7 @@ import torch.nn as nn
 from typing import Tuple, Optional
 from torch import Tensor
 
+from kospeech.models import supported_activations
 from kospeech.models.conv import MaskConv1d
 
 
@@ -109,13 +110,6 @@ class JasperSubBlock(nn.Module):
         - **output**: tensor contains output sequence vector
         - **output**: tensor contains output sequence lengths
     """
-    supported_activations = {
-        'hardtanh': nn.Hardtanh(0, 20, inplace=True),
-        'relu': nn.ReLU(inplace=True),
-        'elu': nn.ELU(inplace=True),
-        'leaky_relu': nn.LeakyReLU(inplace=True),
-        'gelu': nn.GELU()
-    }
 
     def __init__(
             self,
@@ -141,7 +135,7 @@ class JasperSubBlock(nn.Module):
             dilation=dilation
         )
         self.batch_norm = nn.BatchNorm1d(out_channels, eps=1e-3, momentum=0.1)
-        self.activation = self.supported_activations[activation]
+        self.activation = supported_activations[activation]
         self.dropout = nn.Dropout(p=dropout_p)
 
     def forward(self, inputs: Tensor, input_lengths: Tensor, residual: Optional[Tensor] = None) -> Tuple[Tensor, Tensor]:

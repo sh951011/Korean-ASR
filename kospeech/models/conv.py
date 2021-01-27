@@ -102,44 +102,6 @@ class PointwiseConv1d(nn.Module):
         return self.conv(inputs)
 
 
-class Conv2dSubampling(nn.Module):
-    """
-    Convolutional 2D subsampling (to 1/4 length)
-
-    Args:
-        in_channels (int): Number of channels in the input image
-        out_channels (int): Number of channels produced by the convolution
-
-    Inputs: inputs
-        - **inputs** (batch, time, dim): Tensor containing sequence of inputs
-        - **input_lengths** (batch): list of sequence input lengths
-
-    Returns: outputs, output_lengths
-        - **outputs** (batch, time, dim): Tensor produced by the convolution
-        - **output_lengths** (batch): list of sequence output lengths
-    """
-    def __init__(self, in_channels: int, out_channels: int) -> None:
-        super(Conv2dSubampling, self).__init__()
-        self.sequential = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2),
-            nn.ReLU(),
-        )
-
-    def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
-        outputs = self.sequential(inputs.unsqueeze(1))
-        batch_size, channels, subsampled_lengths, sumsampled_dim = outputs.size()
-
-        outputs = outputs.permute(0, 2, 1, 3)
-        outputs = outputs.contiguous().view(batch_size, subsampled_lengths, channels * sumsampled_dim)
-
-        output_lengths = (input_lengths >> 2).int()
-        output_lengths -= 1
-
-        return outputs, output_lengths
-
-
 class MaskConv1d(nn.Conv1d):
     """ 1D convolution with sequence masking """
     def __init__(
@@ -261,6 +223,14 @@ class CNNExtractor(nn.Module):
 
     Note:
         Do not use this class directly, use one of the sub classes.
+
+    Inputs: inputs
+        - **inputs** (batch, time, dim): Tensor containing sequence of inputs
+        - **input_lengths** (batch): list of sequence input lengths
+
+    Returns: outputs, output_lengths
+        - **outputs** (batch, time, dim): Tensor produced by the convolution
+        - **output_lengths** (batch): list of sequence output lengths
     """
     supported_activations = {
         'hardtanh': nn.Hardtanh(0, 20, inplace=True),
@@ -272,10 +242,34 @@ class CNNExtractor(nn.Module):
 
     def __init__(self, activation: str = 'hardtanh') -> None:
         super(CNNExtractor, self).__init__()
+        self.conv = None
         self.activation = CNNExtractor.supported_activations[activation]
 
-    def forward(self, *args, **kwargs):
-        raise NotImplementedError
+    def get_output_lengths(self, sequential: nn.Sequential, seq_lengths: Tensor):
+        for module in sequential:
+            if isinstance(module, nn.Conv2d):
+                numerator = seq_lengths + 2 * module.padding[1] - module.dilation[1] * (module.kernel_size[1] - 1) - 1
+                seq_lengths = numerator.float() / float(module.stride[1])
+                seq_lengths = seq_lengths.int() + 1
+
+            elif isinstance(module, nn.MaxPool2d):
+                seq_lengths >>= 1
+
+        return seq_lengths.int()
+
+    def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
+        if isinstance(self.conv, MaskConv2d):
+            outputs, output_lengths = self.conv(inputs.unsqueeze(1).transpose(2, 3), input_lengths)
+
+        else:
+            outputs = self.conv(inputs.unsqueeze(1).transpose(2, 3))  # B x C x D x T
+            output_lengths = self.get_output_lengths(self.conv, input_lengths)
+
+        batch_size, channels, dimension, seq_lengths = outputs.size()
+        outputs = outputs.permute(0, 3, 1, 2)
+        outputs = outputs.view(batch_size, seq_lengths, channels * dimension)
+
+        return outputs, output_lengths
 
 
 class DeepSpeech2Extractor(CNNExtractor):
@@ -284,24 +278,25 @@ class DeepSpeech2Extractor(CNNExtractor):
     "Deep Speech 2: End-to-End Speech Recognition in English and Mandarin" paper
     - https://arxiv.org/abs/1512.02595
     """
-    def __init__(self, activation: str = 'hardtanh', mask_conv: bool = False) -> None:
+    def __init__(
+            self,
+            in_channels: int = 1,
+            out_channels: int = 32,
+            activation: str = 'hardtanh',
+            mask_conv: bool = False
+    ) -> None:
         super(DeepSpeech2Extractor, self).__init__(activation)
         self.mask_conv = mask_conv
         self.conv = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5), bias=False),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(in_channels, out_channels, kernel_size=(41, 11), stride=(2, 2), padding=(20, 5), bias=False),
+            nn.BatchNorm2d(out_channels),
             self.activation,
-            nn.Conv2d(32, 32, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5), bias=False),
-            nn.BatchNorm2d(32),
-            self.activation
+            nn.Conv2d(out_channels, out_channels, kernel_size=(21, 11), stride=(2, 1), padding=(10, 5), bias=False),
+            nn.BatchNorm2d(out_channels),
+            self.activation,
         )
         if mask_conv:
             self.conv = MaskConv2d(self.conv)
-
-    def forward(self, inputs: Tensor, input_lengths: Tensor) -> Optional[Any]:
-        if self.mask_conv:
-            return self.conv(inputs, input_lengths)
-        return self.conv(inputs)
 
 
 class VGGExtractor(CNNExtractor):
@@ -310,29 +305,56 @@ class VGGExtractor(CNNExtractor):
     "Advances in Joint CTC-Attention based End-to-End Speech Recognition with a Deep CNN Encoder and RNN-LM" paper
     - https://arxiv.org/pdf/1706.02737.pdf
     """
-    def __init__(self, activation: str = 'hardtanh', mask_conv: bool = False):
+    def __init__(
+            self,
+            in_channels: int = 1,
+            out_channels: tuple = (64, 128),
+            activation: str = 'hardtanh',
+            mask_conv: bool = False
+    ):
         super(VGGExtractor, self).__init__(activation)
         self.mask_conv = mask_conv
         self.conv = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(num_features=64),
+            nn.Conv2d(in_channels, out_channels[0], kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(num_features=out_channels[0]),
             self.activation,
-            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(num_features=64),
+            nn.Conv2d(out_channels[0], out_channels[0], kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(num_features=out_channels[0]),
             self.activation,
             nn.MaxPool2d(2, stride=2),
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(num_features=128),
+            nn.Conv2d(out_channels[0], out_channels[1], kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(num_features=out_channels[1]),
             self.activation,
-            nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(num_features=128),
+            nn.Conv2d(out_channels[1], out_channels[1], kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(num_features=out_channels[1]),
             self.activation,
-            nn.MaxPool2d(2, stride=2)
+            nn.MaxPool2d(2, stride=2),
         )
         if mask_conv:
             self.conv = MaskConv2d(self.conv)
 
-    def forward(self, inputs: Tensor, input_lengths: Tensor) -> Optional[Any]:
-        if self.mask_conv:
-            return self.conv(inputs, input_lengths)
-        return self.conv(inputs)
+
+class Conv2dSubsampling(CNNExtractor):
+    """
+    Convolutional 2D subsampling (to 1/4 length)
+
+    Args:
+        in_channels (int): Number of channels in the input image
+        out_channels (int): Number of channels produced by the convolution
+
+    Inputs: inputs
+        - **inputs** (batch, time, dim): Tensor containing sequence of inputs
+        - **input_lengths** (batch): list of sequence input lengths
+
+    Returns: outputs, output_lengths
+        - **outputs** (batch, time, dim): Tensor produced by the convolution
+        - **output_lengths** (batch): list of sequence output lengths
+    """
+    def __init__(self, in_channels: int, out_channels: int, activation: str) -> None:
+        super(Conv2dSubsampling, self).__init__(activation)
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2),
+            self.activation,
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2),
+            self.activation,
+        )

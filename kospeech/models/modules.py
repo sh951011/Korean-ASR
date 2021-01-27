@@ -34,52 +34,7 @@ class ResidualConnectionModule(nn.Module):
         return (self.module(inputs) * self.module_factor) + (inputs * self.input_factor)
 
 
-class BaseRNN(nn.Module):
-    """
-    Applies a multi-layer RNN to an input sequence.
-
-    Note:
-        Do not use this class directly, use one of the sub classes.
-
-    Args:
-        input_size (int): size of input
-        hidden_dim (int): dimension of RNN`s hidden state vector
-        num_layers (int, optional): number of RNN layers (default: 1)
-        bidirectional (bool, optional): if True, becomes a bidirectional RNN (defulat: False)
-        rnn_type (str, optional): type of RNN cell (default: gru)
-        dropout_p (float, optional): dropout probability (default: 0)
-        device (torch.device): device - 'cuda' or 'cpu'
-
-    Attributes:
-          supported_rnns = Dictionary of supported rnns
-    """
-    supported_rnns = {
-        'lstm': nn.LSTM,
-        'gru': nn.GRU,
-        'rnn': nn.RNN
-    }
-
-    def __init__(
-            self,
-            input_size: int,                       # size of input
-            hidden_dim: int = 512,                 # dimension of RNN`s hidden state vector
-            num_layers: int = 1,                   # number of recurrent layers
-            rnn_type: str = 'lstm',                # number of RNN layers
-            dropout_p: float = 0.3,                # dropout probability
-            bidirectional: bool = True,            # if True, becomes a bidirectional rnn
-            device: torch.device = 'cuda'          # device - 'cuda' or 'cpu'
-    ) -> None:
-        super(BaseRNN, self).__init__()
-        rnn_cell = self.supported_rnns[rnn_type]
-        self.rnn = rnn_cell(input_size, hidden_dim, num_layers, True, True, dropout_p, bidirectional)
-        self.hidden_dim = hidden_dim
-        self.device = device
-
-    def forward(self, *args, **kwargs):
-        raise NotImplementedError
-
-
-class BNReluRNN(BaseRNN):
+class BNReluRNN(nn.Module):
     """
     Recurrent neural network with batch normalization layer & ReLU activation function.
 
@@ -94,6 +49,12 @@ class BNReluRNN(BaseRNN):
     Inputs: inputs
         - **inputs**: list of sequences, whose length is the batch size and within which each sequence is list of tokens
     """
+    supported_rnns = {
+        'lstm': nn.LSTM,
+        'gru': nn.GRU,
+        'rnn': nn.RNN
+    }
+
     def __init__(
             self,
             input_size: int,                    # size of input
@@ -103,8 +64,11 @@ class BNReluRNN(BaseRNN):
             dropout_p: float = 0.1,             # dropout probability
             device: torch.device = 'cuda'       # device - 'cuda' or 'cpu'
     ):
-        super(BNReluRNN, self).__init__(input_size=input_size, hidden_dim=hidden_dim, num_layers=1, rnn_type=rnn_type,
-                                        dropout_p=dropout_p, bidirectional=bidirectional, device=device)
+        super(BNReluRNN, self).__init__()
+        rnn_cell = self.supported_rnns[rnn_type]
+        self.rnn = rnn_cell(hidden_dim, hidden_dim, 1, True, True, dropout_p, bidirectional=bidirectional)
+        self.hidden_dim = hidden_dim
+        self.device = device
         self.batch_norm = nn.BatchNorm1d(input_size)
 
     def forward(self, inputs: Tensor, input_lengths: Tensor):
