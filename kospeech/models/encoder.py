@@ -29,8 +29,8 @@ class BaseEncoder(BaseModel):
     def __init__(self):
         super(BaseEncoder, self).__init__()
 
-    def forward(self, *inputs, **kwargs):
-        raise NotImplementedError
+    def forward(self, inputs: Tensor, input_lengths: Tensor):
+        outputs, output_lengths = self.extract_features(inputs, input_lengths)
 
 
 class ConvolutionalEncoder(BaseEncoder):

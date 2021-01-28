@@ -14,7 +14,6 @@
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
 from typing import Tuple
 
@@ -94,8 +93,6 @@ class DeepSpeech2(ConvolutionalCTCModel):
         for rnn_layer in self.rnn_layers:
             outputs = rnn_layer(outputs, output_lengths)
 
-        outputs = outputs.transpose(0, 1)
-        outputs = self.fc(outputs)
-        outputs = F.log_softmax(outputs, dim=-1)
+        outputs = self.get_normalized_probs(outputs.transpose(0, 1))
 
         return outputs, output_lengths

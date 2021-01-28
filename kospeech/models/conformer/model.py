@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import torch
-import torch.nn.functional as F
 from torch import Tensor
 from typing import Tuple
 
@@ -88,6 +87,5 @@ class Conformer(CTCModel):
 
     def forward(self, inputs: Tensor, input_lengths: Tensor) -> Tuple[Tensor, Tensor]:
         outputs, output_lengths = self.encoder(inputs, input_lengths)
-        outputs = self.fc(outputs)
-        outputs = F.log_softmax(outputs, dim=-1)
+        outputs = self.get_normalized_probs(outputs)
         return outputs, output_lengths

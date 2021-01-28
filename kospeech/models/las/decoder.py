@@ -23,7 +23,7 @@ from typing import Optional, Any, Tuple
 
 from kospeech.models import supported_rnns
 from kospeech.models.decoder import IncrementalDecoder
-from kospeech.models.modules import Linear
+from kospeech.models.modules import Linear, View
 from kospeech.models.attention import (
     LocationAwareAttention,
     MultiHeadAttention,
@@ -104,8 +104,12 @@ class Speller(IncrementalDecoder):
         else:
             raise ValueError("Unsupported attention: %s".format(attn_mechanism))
 
-        self.fc1 = Linear(hidden_dim << 1, hidden_dim)
-        self.fc2 = Linear(hidden_dim, num_classes)
+        self.fc = nn.Sequential(
+            Linear(hidden_dim << 1, hidden_dim),
+            nn.Tanh(),
+            View(shape=(-1, self.hidden_dim), contiguous=True),
+            Linear(hidden_dim, num_classes),
+        )
 
     def forward_step(
             self,
@@ -131,10 +135,7 @@ class Speller(IncrementalDecoder):
 
         context = torch.cat((outputs, context), dim=2)
 
-        outputs = self.fc1(context.view(-1, self.hidden_dim << 1)).view(batch_size, -1, self.hidden_dim)
-        outputs = self.fc2(torch.tanh(outputs).contiguous().view(-1, self.hidden_dim))
-
-        step_outputs = F.log_softmax(outputs, dim=1)
+        step_outputs = self.get_normalized_probs(context.view(batch_size, -1, self.hidden_dim << 1))
         step_outputs = step_outputs.view(batch_size, output_lengths, -1).squeeze(1)
 
         return step_outputs, hidden, attn

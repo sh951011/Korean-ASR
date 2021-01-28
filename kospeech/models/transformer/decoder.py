@@ -20,7 +20,6 @@ from typing import Optional, Tuple
 from kospeech.models.transformer.sublayers import AddNorm
 from kospeech.models.attention import MultiHeadAttention
 from kospeech.models.decoder import IncrementalDecoder
-from kospeech.models.modules import Linear
 from kospeech.models.transformer.embeddings import Embedding, PositionalEncoding
 from kospeech.models.transformer.mask import get_decoder_self_attn_mask, get_attn_pad_mask
 from kospeech.models.transformer.sublayers import PositionwiseFeedForwardNet
@@ -117,7 +116,6 @@ class SpeechTransformerDecoder(IncrementalDecoder):
                 ffnet_style=ffnet_style,
             ) for _ in range(num_layers)
         ])
-        self.fc = Linear(d_model, num_classes)
 
     def forward_step(
             self,
@@ -140,12 +138,10 @@ class SpeechTransformerDecoder(IncrementalDecoder):
         self_attn_mask = get_decoder_self_attn_mask(inputs, inputs, self.pad_id)
         encoder_outputs_mask = get_attn_pad_mask(encoder_outputs, encoder_output_lengths, target_length)
 
-        inputs = self.embedding(inputs) + self.positional_encoding(target_length)
-        inputs = self.input_dropout(inputs)
+        outputs = self.embedding(inputs) + self.positional_encoding(target_length)
+        outputs = self.input_dropout(outputs)
 
         for layer in self.layers:
-            inputs, self_attn, memory_attn = layer(inputs, encoder_outputs, self_attn_mask, encoder_outputs_mask)
-
-        outputs = self.fc(inputs)
+            outputs, self_attn, memory_attn = layer(outputs, encoder_outputs, self_attn_mask, encoder_outputs_mask)
 
         return outputs

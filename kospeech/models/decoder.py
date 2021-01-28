@@ -14,6 +14,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class BaseDecoder(nn.Module):
@@ -50,6 +51,11 @@ class IncrementalDecoder(BaseDecoder):
             sos_id=sos_id, eos_id=eos_id, pad_id=pad_id,
         )
         self.beam_size = 1
+
+    def get_normalized_probs(self, outputs):
+        outputs = self.fc(outputs)
+        outputs = F.log_softmax(outputs, dim=-1)
+        return outputs
 
     def set_beam_size(self, beam_size: int):
         assert isinstance(beam_size, int)

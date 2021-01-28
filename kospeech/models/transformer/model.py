@@ -17,6 +17,7 @@ from torch import Tensor
 from typing import Optional, Union
 
 from kospeech.models.model import EncoderDecoderModel
+from kospeech.models.modules import Linear
 from kospeech.models.transformer.decoder import SpeechTransformerDecoder
 from kospeech.models.transformer.encoder import SpeechTransformerEncoder
 
@@ -107,6 +108,7 @@ class SpeechTransformer(EncoderDecoderModel):
             eos_id=eos_id,
             max_length=max_length,
         )
+        self.fc = Linear(d_model, num_classes)
 
     def forward(
             self,
@@ -120,6 +122,7 @@ class SpeechTransformer(EncoderDecoderModel):
         """
         encoder_outputs, encoder_log_probs, encoder_output_lengths = self.encoder(inputs, input_lengths)
         outputs = self.decoder(targets, encoder_output_lengths, encoder_outputs)
+        outputs = self.get_normalized_probs(outputs)
         return outputs, encoder_log_probs, encoder_output_lengths
 
     def greedy_search(self, inputs: Tensor, input_lengths: Tensor, device: str):

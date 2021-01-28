@@ -14,6 +14,7 @@
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 
@@ -43,6 +44,11 @@ class EncoderDecoderModel(BaseModel):
     def set_decoder(self, decoder: nn.Module) -> None:
         self.decoder = decoder
 
+    def get_normalized_probs(self, outputs):
+        outputs = self.fc(outputs)
+        outputs = F.log_softmax(outputs, dim=-1)
+        return outputs
+
     def forward(self, *inputs, **kwargs):
         raise NotImplementedError
 
@@ -54,10 +60,15 @@ class CTCModel(BaseModel):
     def __init__(self):
         super(CTCModel, self).__init__()
 
-    def forward(self, *inputs, **kwargs):
-        raise NotImplementedError
+    def get_normalized_probs(self, outputs):
+        outputs = self.fc(outputs)
+        outputs = F.log_softmax(outputs, dim=-1)
+        return outputs
 
     def greedy_search(self, inputs: Tensor, input_lengths: Tensor, device: torch.device) -> Tensor:
         with torch.no_grad():
             outputs, output_lengths = self.forward(inputs, input_lengths)
             return outputs.max(-1)[1]
+
+    def forward(self, *inputs, **kwargs):
+        raise NotImplementedError
